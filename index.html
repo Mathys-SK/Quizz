@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quiz Manager</title>
+
+  <!-- Police pixel douce -->
+  <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body class="words">
+
+  <!-- Boutons de coin : ils suivent le bord de leur panneau quand il s'ouvre -->
+  <button id="menu-btn" class="corner-btn" data-lbl="menu" aria-expanded="false" aria-controls="menu"></button>
+  <button id="settings-btn" class="corner-btn" data-lbl="settings" aria-expanded="false" aria-controls="settings"></button>
+
+  <!-- Voile cliquable (petits écrans, quand un panneau recouvre le contenu) -->
+  <div id="scrim" hidden></div>
+
+  <!-- MENU LATÉRAL GAUCHE -->
+  <aside id="menu" aria-label="Gestionnaire">
+    <h2>GESTIONNAIRE</h2>
+
+    <button id="new-btn" class="menu-btn" aria-expanded="false" aria-controls="new-menu">Nouveau</button>
+    <div id="new-menu" hidden>
+      <button id="new-create" class="menu-btn">Créer</button>
+      <button id="new-import" class="menu-btn">Importer</button>
+      <button id="new-ai" class="menu-btn">Créer avec l'IA</button>
+    </div>
+    <button id="export-btn" class="menu-btn">Exporter</button>
+
+    <h3>Questionnaires</h3>
+    <ul id="quiz-list"></ul>
+  </aside>
+
+  <!-- PANNEAU DE RÉGLAGES DROIT -->
+  <aside id="settings" aria-label="Réglages">
+    <h2>RÉGLAGES</h2>
+
+    <div class="setting">
+      <h3>Couleur d'accent</h3>
+      <div id="swatches"></div>
+    </div>
+
+    <div class="setting">
+      <h3>Boutons</h3>
+      <div class="seg" id="seg-labels">
+        <button data-value="icons">Icônes</button>
+        <button data-value="words">Mots</button>
+      </div>
+    </div>
+
+    <div class="setting row">
+      <span>Mélanger les questions</span>
+      <button class="switch" id="sw-shuffleQ" role="switch" aria-checked="false">NON</button>
+    </div>
+
+    <div class="setting row">
+      <span>Mélanger les options</span>
+      <button class="switch" id="sw-shuffleO" role="switch" aria-checked="true">OUI</button>
+    </div>
+  </aside>
+
+  <!-- CONTENU PRINCIPAL -->
+  <main id="main">
+    <div id="view" class="view"></div>
+  </main>
+
+  <!-- POPUP : CRÉER AVEC L'IA -->
+  <div id="ai-modal" class="modal" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="ai-title">
+      <div class="modal-head">
+        <h2 id="ai-title">Créer avec l'IA</h2>
+        <button id="ai-close" data-lbl="close"></button>
+      </div>
+
+      <section class="step">
+        <h3>1. Copier le prompt</h3>
+        <label for="ai-topic">Sujet ou cours</label>
+        <textarea id="ai-topic" rows="4" placeholder="Ex : la Révolution française — ou colle ton cours ici"></textarea>
+        <label for="ai-prompt">Prompt à donner à l'IA</label>
+        <textarea id="ai-prompt" rows="7" readonly></textarea>
+        <div class="actions">
+          <button id="ai-copy" class="primary">Copier le prompt</button>
+        </div>
+      </section>
+
+      <section class="step">
+        <h3>2. Coller la réponse</h3>
+        <label for="ai-paste">Réponse de l'IA</label>
+        <textarea id="ai-paste" rows="6" placeholder="Colle ici le JSON renvoyé par l'IA"></textarea>
+        <p id="ai-error" class="error" hidden></p>
+        <div class="actions">
+          <button id="ai-create" class="primary">Créer le quiz</button>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div id="toast" role="status" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
