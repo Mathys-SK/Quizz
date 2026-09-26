@@ -3,24 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Quiz Manager</title>
+  <title>Quizz</title>
 
-  <!-- Police pixel douce -->
   <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
-
   <link rel="stylesheet" href="style.css">
 </head>
 
 <body class="words">
 
-  <!-- Boutons de coin : ils suivent le bord de leur panneau quand il s'ouvre -->
   <button id="menu-btn" class="corner-btn" data-lbl="menu" aria-expanded="false" aria-controls="menu"></button>
   <button id="settings-btn" class="corner-btn" data-lbl="settings" aria-expanded="false" aria-controls="settings"></button>
 
-  <!-- Voile cliquable (petits écrans, quand un panneau recouvre le contenu) -->
   <div id="scrim" hidden></div>
 
-  <!-- MENU LATÉRAL GAUCHE -->
   <aside id="menu" aria-label="Gestionnaire">
     <h2>GESTIONNAIRE</h2>
 
@@ -32,11 +27,16 @@
     </div>
     <button id="export-btn" class="menu-btn">Exporter</button>
 
-    <h3>Questionnaires</h3>
-    <ul id="quiz-list"></ul>
+    <div class="menu-scroll">
+      <h3>Questionnaires</h3>
+      <ul id="quiz-list"></ul>
+    </div>
+
+    <button id="version-btn" class="version-btn" type="button">
+      Site : v.2.0.0<br>Format Quiz : v.1.5.0
+    </button>
   </aside>
 
-  <!-- PANNEAU DE RÉGLAGES DROIT -->
   <aside id="settings" aria-label="Réglages">
     <h2>RÉGLAGES</h2>
 
@@ -64,12 +64,10 @@
     </div>
   </aside>
 
-  <!-- CONTENU PRINCIPAL -->
   <main id="main">
     <div id="view" class="view"></div>
   </main>
 
-  <!-- POPUP : CRÉER AVEC L'IA -->
   <div id="ai-modal" class="modal" hidden>
     <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="ai-title">
       <div class="modal-head">
@@ -77,26 +75,75 @@
         <button id="ai-close" data-lbl="close"></button>
       </div>
 
-      <section class="step">
-        <h3>1. Copier le prompt</h3>
-        <label for="ai-topic">Sujet ou cours</label>
-        <textarea id="ai-topic" rows="4" placeholder="Ex : la Révolution française — ou colle ton cours ici"></textarea>
-        <label for="ai-prompt">Prompt à donner à l'IA</label>
-        <textarea id="ai-prompt" rows="7" readonly></textarea>
+      <div class="tabs">
+        <button type="button" class="tab" id="tab-custom">1. Personnalisation</button>
+        <button type="button" class="tab" id="tab-gen">2. Génération</button>
+      </div>
+
+      <section id="tabpanel-custom" class="tabpanel">
+        <label>Types de questions</label>
+        <div class="chip-select" id="ai-types">
+          <button type="button" data-value="tf">Vrai / Faux</button>
+          <button type="button" data-value="choice">Options</button>
+          <button type="button" data-value="text">Saisie</button>
+          <button type="button" data-value="list">Liste</button>
+        </div>
+
+        <label for="ai-count">Nombre de questions</label>
+        <input type="number" id="ai-count" min="1" max="40" value="10">
+
+        <label>Sujet</label>
+        <div class="seg" id="seg-source">
+          <button type="button" data-value="text">Texte</button>
+          <button type="button" data-value="attachment">Pièce jointe</button>
+        </div>
+
+        <div id="ai-topic-wrap">
+          <textarea id="ai-topic" rows="4" placeholder="Ex : la Révolution française — ou colle ton cours ici"></textarea>
+        </div>
+        <p id="ai-attach-note" class="hint" hidden>
+          Le prompt indiquera qu'un document est joint. Tu devras toi-même joindre le fichier dans la conversation avec l'IA.
+        </p>
+
         <div class="actions">
-          <button id="ai-copy" class="primary">Copier le prompt</button>
+          <button type="button" id="ai-next" class="primary">Suivant</button>
         </div>
       </section>
 
-      <section class="step">
-        <h3>2. Coller la réponse</h3>
-        <label for="ai-paste">Réponse de l'IA</label>
+      <section id="tabpanel-gen" class="tabpanel" hidden>
+        <div class="prompt-box">
+          <button type="button" id="ai-toggle-prompt" class="plain toggle-prompt">
+            <span class="chev">▸</span> Voir le prompt
+          </button>
+          <textarea id="ai-prompt" rows="12" readonly hidden></textarea>
+        </div>
+
+        <div class="actions">
+          <button type="button" id="ai-copy" class="primary">Copier le prompt</button>
+          <button type="button" id="ai-google">Google (mode IA)</button>
+        </div>
+
+        <label for="ai-paste">Coller la réponse de l'IA</label>
         <textarea id="ai-paste" rows="6" placeholder="Colle ici le JSON renvoyé par l'IA"></textarea>
         <p id="ai-error" class="error" hidden></p>
         <div class="actions">
-          <button id="ai-create" class="primary">Créer le quiz</button>
+          <button type="button" id="ai-create" class="primary">Créer le quiz</button>
         </div>
       </section>
+    </div>
+  </div>
+
+  <div id="info-modal" class="modal" hidden>
+    <div class="modal-box small" role="dialog" aria-modal="true" aria-labelledby="info-title">
+      <div class="modal-head">
+        <h2 id="info-title">À propos</h2>
+        <button id="info-close" data-lbl="close"></button>
+      </div>
+      <p><strong>Version du site :</strong> <span id="info-app-version"></span></p>
+      <p><strong>Version du format de quiz :</strong> <span id="info-schema-version"></span></p>
+      <p><strong>Créateur :</strong> Mathys SK</p>
+      <p>Ce site a été développé avec l'aide d'une intelligence artificielle.</p>
+      <p><a id="info-repo" href="https://github.com/Mathys-SK/Quizz" target="_blank" rel="noopener">github.com/Mathys-SK/Quizz</a></p>
     </div>
   </div>
 

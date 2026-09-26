@@ -9,6 +9,16 @@
 
 [hidden] { display: none !important; }
 
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #fff #000;
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: #000; }
+::-webkit-scrollbar-thumb { background: #111; border: 2px solid #fff; }
+::-webkit-scrollbar-thumb:hover { border-color: var(--accent); }
+::-webkit-scrollbar-corner { background: #000; }
+
 body {
   background: #000;
   color: #fff;
@@ -19,7 +29,6 @@ body {
 
 ul, ol { list-style: none; }
 
-/* ---------- Boutons génériques ---------- */
 button {
   font-family: inherit;
   font-size: 20px;
@@ -45,13 +54,14 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 button.primary { border-color: var(--accent); color: var(--accent); }
 button.primary:hover:not(:disabled) { background: var(--accent); color: #000; }
 
+button.big { padding: 16px 28px; font-size: 26px; }
+
 button.small { padding: 2px 8px; font-size: 18px; }
 button.danger:hover:not(:disabled) { border-color: var(--bad); color: var(--bad); }
 
 button.plain { border: 0; background: none; padding: 8px 4px; text-align: left; justify-content: flex-start; }
 button.plain:hover:not(:disabled) { color: inherit; }
 
-/* Icônes / mots : choisi dans les réglages */
 .ico { display: none; align-items: center; }
 .wrd { display: inline; }
 body.icons .ico { display: inline-flex; }
@@ -67,15 +77,15 @@ input, select, textarea {
 }
 textarea { width: 100%; resize: vertical; line-height: 1.2; }
 input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent); flex: none; }
+input[type="number"] { width: 100px; }
 
 label { display: block; color: #999; font-size: 18px; margin: 12px 0 4px; }
 
 .hint { color: #999; font-size: 18px; margin-bottom: 8px; }
 .error { color: var(--bad); margin-top: 8px; }
 
-.actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; align-items: center; }
 
-/* ---------- Boutons de coin ---------- */
 .corner-btn {
   position: fixed;
   top: 16px;
@@ -88,7 +98,6 @@ label { display: block; color: #999; font-size: 18px; margin: 12px 0 4px; }
 body.menu-open #menu-btn { left: calc(var(--side-w) + 16px); }
 body.settings-open #settings-btn { right: calc(var(--side-w) + 16px); }
 
-/* ---------- Panneaux latéraux ---------- */
 #menu, #settings {
   position: fixed;
   top: 0;
@@ -104,7 +113,13 @@ body.settings-open #settings-btn { right: calc(var(--side-w) + 16px); }
   z-index: 50;
 }
 
-#menu { left: 0; border-right: 2px solid #fff; transform: translateX(-100%); }
+#menu {
+  left: 0;
+  border-right: 2px solid #fff;
+  transform: translateX(-100%);
+  display: flex;
+  flex-direction: column;
+}
 #settings { right: 0; border-left: 2px solid #fff; transform: translateX(100%); }
 
 body.menu-open #menu,
@@ -124,16 +139,42 @@ body.settings-open #settings {
 }
 #menu h3 { margin-top: 16px; }
 
-.menu-btn { width: 100%; margin-bottom: 10px; }
+.menu-btn { width: 100%; margin-bottom: 10px; flex: none; }
 
 #new-menu {
   margin: 0 0 10px 10px;
   padding-left: 10px;
   border-left: 2px solid #555;
+  flex: none;
 }
 #new-menu .menu-btn { margin-bottom: 8px; }
 
-/* Liste des questionnaires */
+.menu-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -6px;
+  padding: 0 6px;
+}
+
+.version-btn {
+  flex: none;
+  align-self: flex-start;
+  margin-top: 14px;
+  border: none;
+  background: transparent;
+  color: #666;
+  font-size: 16px;
+  padding: 4px 0;
+  text-align: left;
+  line-height: 1.3;
+}
+.version-btn:hover:not(:disabled) {
+  color: var(--accent);
+  background: transparent;
+  border: none;
+}
+
 #quiz-list li {
   display: flex;
   align-items: center;
@@ -164,13 +205,11 @@ body.settings-open #settings {
 #quiz-list li:hover .q-count,
 #quiz-list li:focus-within .q-count { display: none; }
 
-/* Pas de survol sur tactile : les actions restent visibles */
 @media (hover: none) {
   .row-actions { display: flex; }
   .q-count { display: none; }
 }
 
-/* Réglages */
 .setting { margin-bottom: 22px; }
 .setting.row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 
@@ -193,10 +232,11 @@ body.settings-open #settings {
 .switch { min-width: 64px; }
 .switch[aria-checked="true"] { border-color: var(--accent); color: var(--accent); }
 
-/* Voile pour petits écrans */
+.chip-select { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+.chip-select button.on { border-color: var(--accent); color: var(--accent); }
+
 #scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); z-index: 40; }
 
-/* ---------- Contenu principal : il se décale avec les panneaux ---------- */
 #main {
   min-height: 100vh;
   padding: 80px 24px 60px;
@@ -227,7 +267,17 @@ h3 { font-size: 24px; font-weight: normal; }
 .bar { height: 10px; border: 2px solid #fff; margin-bottom: 24px; }
 .bar i { display: block; height: 100%; background: var(--accent); transition: width .3s; }
 
-/* ---------- Jeu ---------- */
+.history { margin-top: 8px; }
+.history li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #333;
+  color: #ccc;
+}
+.h-date { color: #999; }
+
 .question { margin-bottom: 16px; overflow-wrap: anywhere; }
 
 .opts { display: flex; flex-direction: column; gap: 8px; }
@@ -275,7 +325,6 @@ ol.seq:empty::before { content: "Clique sur les éléments dans l'ordre."; color
 .feedback strong { font-size: 24px; font-weight: normal; }
 .feedback p { color: #fff; margin-top: 4px; overflow-wrap: anywhere; }
 
-/* Résultat */
 .score { font-size: 64px; line-height: 1; margin: 8px 0 4px; }
 .score small { font-size: 24px; color: #999; }
 .review { margin-top: 24px; }
@@ -283,7 +332,6 @@ ol.seq:empty::before { content: "Clique sur les éléments dans l'ordre."; color
 .review .got { color: var(--bad); }
 .review .exp { color: var(--good); }
 
-/* ---------- Éditeur ---------- */
 .card { border: 2px solid #fff; padding: 16px; margin: 16px 0 28px; }
 .card h3 { margin-bottom: 4px; }
 .card select, .card input[type="text"] { max-width: 100%; }
@@ -307,7 +355,6 @@ ol.seq:empty::before { content: "Clique sur les éléments dans l'ordre."; color
 #qlist .q-tools { display: flex; gap: 6px; align-items: center; }
 .badge { border: 1px solid #777; color: #aaa; font-size: 16px; padding: 0 6px; white-space: nowrap; }
 
-/* ---------- Popup IA ---------- */
 .modal {
   position: fixed;
   inset: 0;
@@ -326,11 +373,22 @@ ol.seq:empty::before { content: "Clique sur les éléments dans l'ordre."; color
   border: 2px solid #fff;
   padding: 20px;
 }
+.modal-box.small { width: min(420px, 100%); }
+.modal-box p { margin: 10px 0; overflow-wrap: anywhere; }
+.modal-box a { color: var(--accent); }
 .modal-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
-.step { border-top: 2px solid #333; padding-top: 12px; margin-top: 12px; }
-.step h3 { color: var(--accent); }
 
-/* ---------- Toast ---------- */
+.tabs { display: flex; margin-top: 8px; }
+.tab { flex: 1; background: #000; }
+.tab + .tab { border-left-width: 0; }
+.tab.on { background: #111; border-color: var(--accent); color: var(--accent); }
+.tabpanel { border-top: 2px solid #333; padding-top: 14px; margin-top: 14px; }
+
+.prompt-box { margin-bottom: 4px; }
+.toggle-prompt { color: #ccc; }
+.toggle-prompt .chev { display: inline-block; width: 1em; }
+#ai-prompt { margin-top: 8px; font-size: 17px; }
+
 #toast {
   position: fixed;
   left: 50%;
@@ -344,19 +402,16 @@ ol.seq:empty::before { content: "Clique sur les éléments dans l'ordre."; color
   text-align: center;
 }
 
-/* ---------- Petits écrans : les panneaux recouvrent le contenu ---------- */
 @media (max-width: 800px) {
   #main { padding: 76px 16px 48px; }
   body.menu-open #main,
   body.settings-open #main { padding-left: 16px; padding-right: 16px; }
 
-  /* Le bouton qui referme n'a plus la place d'afficher un mot */
   body.menu-open #menu-btn .wrd,
   body.settings-open #settings-btn .wrd { display: none; }
   body.menu-open #menu-btn .ico,
   body.settings-open #settings-btn .ico { display: inline-flex; }
 
-  /* Un seul panneau à la fois : on masque le bouton de l'autre côté */
   body.menu-open #settings-btn,
   body.settings-open #menu-btn { visibility: hidden; }
 

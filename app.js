@@ -1,12 +1,10 @@
 "use strict";
 
-/* =====================================================================
-   Outils
-   ===================================================================== */
+const APP_VERSION = "2.0.0";
+const SCHEMA_VERSION = "1.5.0";
+
 const $ = id => document.getElementById(id);
 
-// Construit un élément sans jamais passer par innerHTML (le texte des quiz
-// importés reste du texte, jamais du HTML).
 function h(tag, props = {}, ...kids) {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
@@ -28,7 +26,6 @@ function shuffle(arr) {
   return a;
 }
 
-// Compare deux réponses texte sans tenir compte des accents, majuscules, ponctuation
 function norm(s) {
   return String(s)
     .toLowerCase()
@@ -49,10 +46,23 @@ function toast(msg) {
   toastTimer = setTimeout(() => { t.hidden = true; }, 3000);
 }
 
-/* =====================================================================
-   Icônes / mots (réglage « Boutons »)
-   Chaque bouton contient les deux versions ; le CSS affiche l'une ou l'autre.
-   ===================================================================== */
+async function copyText(text, okMsg) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(okMsg);
+    return true;
+  } catch {
+    const ta = h("textarea", { value: text, style: "position:fixed;top:-1000px;left:-1000px" });
+    document.body.append(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch { ok = false; }
+    ta.remove();
+    toast(ok ? okMsg : "Copie impossible : copie le texte manuellement.");
+    return ok;
+  }
+}
+
 const svg = d => `<svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true">${d}</svg>`;
 
 const I = {
@@ -67,7 +77,8 @@ const I = {
   down: svg('<path d="M3 6l5 5 5-5"/>'),
   play: svg('<path d="M4 2l10 6-10 6z"/>'),
   arrow: svg('<path d="M2 8h11M9 4l4 4-4 4"/>'),
-  replay: svg('<path d="M13 8a5 5 0 1 1-1.5-3.6M13 2v3h-3"/>')
+  replay: svg('<path d="M13 8a5 5 0 1 1-1.5-3.6M13 2v3h-3"/>'),
+  clip: svg('<rect x="4" y="3" width="8" height="11"/><path d="M6 3V2h4v1"/>')
 };
 
 const LABELS = {
@@ -91,7 +102,8 @@ const LABELS = {
   finish:    { w: "Résultat",    i: I.arrow },
   replay:    { w: "Rejouer",     i: I.replay },
   replayErr: { w: "Rejouer les erreurs", i: I.replay },
-  quit:      { w: "Quitter",     i: I.close }
+  quit:      { w: "Quitter",     i: I.close },
+  copyErr:   { w: "Copier mes erreurs", i: I.clip }
 };
 
 function setLbl(el, key) {
@@ -107,17 +119,9 @@ function btn(key, onClick, cls = "") {
   return b;
 }
 
-/* =====================================================================
-   Données
-   Format d'une question :
-     tf     { type:"tf", text, correct:true|false }
-     choice { type:"choice", text, options:[{text, correct}] }  (1 ou plusieurs bonnes)
-     text   { type:"text", text, answers:[…] }                  (plusieurs réponses acceptées)
-     list   { type:"list", text, items:[…] }                    (dans le bon ordre)
-   Les anciennes questions { text, correct } sont converties en « tf ».
-   ===================================================================== */
 const STORE_KEY = "quizData";
 const SETTINGS_KEY = "quizSettings";
+const HISTORY_KEY = "quizHistory";
 
 const TYPES = [
   ["tf", "Vrai / Faux"],
@@ -167,7 +171,8 @@ function normalizeQuestion(raw) {
     const src = Array.isArray(raw.answers) ? raw.answers : raw.answer != null ? [raw.answer] : [];
     const answers = src.map(a => String(a).trim()).filter(Boolean);
     if (!answers.length) return null;
-    return { type, text, answers };
+    const tolerance = raw.tolerance === "exact" ? "exact" : "tolerant";
+    return { type, text, answers, tolerance };
   }
   if (type === "list") {
     if (!Array.isArray(raw.items)) return null;
@@ -178,13 +183,24 @@ function normalizeQuestion(raw) {
   return null;
 }
 
+function normalizeQuiz(raw) {
+  if (Array.isArray(raw)) {
+    return { schemaVersion: SCHEMA_VERSION, questions: raw.map(normalizeQuestion).filter(Boolean) };
+  }
+  if (raw && typeof raw === "object") {
+    const v = raw.schemaVersion ?? SCHEMA_VERSION;
+    const list = Array.isArray(raw.questions) ? raw.questions : [];
+    if (v > SCHEMA_VERSION) return { schemaVersion: v, questions: [], incompatible: true };
+    return { schemaVersion: v, questions: list.map(normalizeQuestion).filter(Boolean) };
+  }
+  return { schemaVersion: SCHEMA_VERSION, questions: [] };
+}
+
 function loadQuizzes() {
   const raw = loadJSON(STORE_KEY, {});
   const out = {};
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-    for (const [name, list] of Object.entries(raw)) {
-      out[name] = Array.isArray(list) ? list.map(normalizeQuestion).filter(Boolean) : [];
-    }
+    for (const [name, value] of Object.entries(raw)) out[name] = normalizeQuiz(value);
   }
   return out;
 }
@@ -200,18 +216,30 @@ function loadSettings() {
   };
 }
 
+function loadHistory() {
+  const h2 = loadJSON(HISTORY_KEY, {});
+  return h2 && typeof h2 === "object" && !Array.isArray(h2) ? h2 : {};
+}
+
 let quizzes = loadQuizzes();
 let settings = loadSettings();
+let history = loadHistory();
 let currentQuiz = null;
 let play = null;
 
 function save() { localStorage.setItem(STORE_KEY, JSON.stringify(quizzes)); }
 function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }
+function saveHistory() { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); }
 
-/* =====================================================================
-   Panneaux (menu à gauche, réglages à droite)
-   Ils sont indépendants sur grand écran ; sur petit écran un seul à la fois.
-   ===================================================================== */
+function quizHistory(name) { return history[name] || []; }
+
+function recordScore(name, good, total) {
+  if (!history[name]) history[name] = [];
+  history[name].push({ date: new Date().toISOString(), good, total });
+  if (history[name].length > 50) history[name] = history[name].slice(-50);
+  saveHistory();
+}
+
 function updateScrim() {
   const open = document.body.classList.contains("menu-open") ||
                document.body.classList.contains("settings-open");
@@ -239,9 +267,6 @@ function setSettings(open) {
 
 const isOpen = cls => document.body.classList.contains(cls);
 
-/* =====================================================================
-   Réglages
-   ===================================================================== */
 const ACCENTS = ["#00ff00", "#00ffff", "#ffff00", "#ff00ff", "#ff8800"];
 
 function applySettings() {
@@ -295,9 +320,6 @@ function initSettingsUI() {
   };
 }
 
-/* =====================================================================
-   Liste des questionnaires (menu)
-   ===================================================================== */
 function renderQuizList() {
   const list = $("quiz-list");
   list.replaceChildren();
@@ -309,9 +331,10 @@ function renderQuizList() {
   }
 
   names.forEach(name => {
+    const count = quizzes[name].incompatible ? "!" : String(quizzes[name].questions.length);
     list.append(h("li", { class: name === currentQuiz ? "active" : "" },
-      h("button", { type: "button", class: "plain q-name", text: name, title: "Lancer", onclick: () => startQuiz(name) }),
-      h("span", { class: "q-count", text: String(quizzes[name].length) }),
+      h("button", { type: "button", class: "plain q-name", text: name, title: "Ouvrir", onclick: () => openQuizHome(name) }),
+      h("span", { class: "q-count", text: count }),
       h("span", { class: "row-actions" },
         btn("edit", () => openEditor(name), "small"),
         btn("del", () => deleteQuiz(name), "small danger"))
@@ -329,7 +352,7 @@ function createQuiz() {
   const name = (prompt("Nom du questionnaire :") || "").trim();
   if (!name) return;
   if (Object.hasOwn(quizzes, name)) return toast("Ce nom existe déjà.");
-  quizzes[name] = [];
+  quizzes[name] = { schemaVersion: SCHEMA_VERSION, questions: [] };
   save();
   openEditor(name);
 }
@@ -337,15 +360,14 @@ function createQuiz() {
 function deleteQuiz(name) {
   if (!confirm(`Supprimer « ${name} » ?`)) return;
   delete quizzes[name];
+  delete history[name];
   save();
+  saveHistory();
   if (currentQuiz === name) goHome();
   else renderQuizList();
   toast("Questionnaire supprimé.");
 }
 
-/* =====================================================================
-   Import / export
-   ===================================================================== */
 function exportAll() {
   const blob = new Blob([JSON.stringify(quizzes, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -356,52 +378,73 @@ function exportAll() {
   URL.revokeObjectURL(url);
 }
 
-// Accepte du JSON « propre » ou une réponse d'IA avec ```json … ``` autour
 function parseLoose(text) {
   const t = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  try { return JSON.parse(t); } catch { /* on tente d'extraire l'objet */ }
+  try { return JSON.parse(t); } catch {}
   const a = t.indexOf("{"), b = t.lastIndexOf("}");
   if (a >= 0 && b > a) {
-    try { return JSON.parse(t.slice(a, b + 1)); } catch { /* invalide */ }
+    try { return JSON.parse(t.slice(a, b + 1)); } catch {}
   }
   return null;
 }
 
-// Formats acceptés : { name, questions:[…] }  |  [ …questions ]  |  { "Nom": [ …questions ], … }
 function extractQuizzes(data) {
-  if (Array.isArray(data)) return [{ name: "Quiz importé", raw: data }];
+  if (Array.isArray(data)) return [{ name: "Quiz importé", schemaVersion: SCHEMA_VERSION, raw: data }];
   if (!data || typeof data !== "object") return [];
+
   if (Array.isArray(data.questions)) {
-    return [{ name: String(data.name || "").trim() || "Quiz importé", raw: data.questions }];
+    const v = data.schemaVersion ?? SCHEMA_VERSION;
+    return [{ name: String(data.name || "").trim() || "Quiz importé", schemaVersion: v, raw: data.questions }];
   }
-  return Object.entries(data).filter(([, v]) => Array.isArray(v)).map(([name, raw]) => ({ name, raw }));
+
+  return Object.entries(data)
+    .map(([name, value]) => {
+      if (Array.isArray(value)) return { name, schemaVersion: SCHEMA_VERSION, raw: value };
+      if (value && Array.isArray(value.questions)) {
+        const v = value.schemaVersion ?? SCHEMA_VERSION;
+        return { name, schemaVersion: v, raw: value.questions };
+      }
+      return null;
+    })
+    .filter(Boolean);
 }
 
-// Ajoute les quiz sans jamais écraser ceux qui existent déjà
 function importFromText(text) {
   const data = parseLoose(text);
   if (data === null) return { error: "Ce n'est pas un JSON valide." };
 
+  const entries = extractQuizzes(data);
+  if (!entries.length) return { error: "Aucun questionnaire trouvé dans ce JSON." };
+
   const added = [];
+  const rejected = [];
   let count = 0, skipped = 0;
-  extractQuizzes(data).forEach(({ name, raw }) => {
+
+  entries.forEach(({ name, schemaVersion, raw }) => {
+    if (schemaVersion > SCHEMA_VERSION) {
+      rejected.push(`« ${name} » utilise une version plus récente (v${schemaVersion}) que ce site (v${SCHEMA_VERSION})`);
+      return;
+    }
     const valid = raw.map(normalizeQuestion).filter(Boolean);
     skipped += raw.length - valid.length;
     if (!valid.length) return;
     const finalName = uniqueName(name);
-    quizzes[finalName] = valid;
+    quizzes[finalName] = { schemaVersion: SCHEMA_VERSION, questions: valid };
     added.push(finalName);
     count += valid.length;
   });
 
-  if (!added.length) return { error: "Aucune question valide trouvée dans ce JSON." };
+  if (!added.length) {
+    return { error: rejected.length ? rejected.join(" ; ") + "." : "Aucune question valide trouvée dans ce JSON." };
+  }
+
   save();
   renderQuizList();
-  return {
-    added,
-    message: `${added.length} questionnaire(s) importé(s), ${count} question(s)` +
-             (skipped ? `, ${skipped} ignorée(s)` : "") + "."
-  };
+  let message = `${added.length} questionnaire(s) importé(s), ${count} question(s)`;
+  if (skipped) message += `, ${skipped} ignorée(s)`;
+  message += ".";
+  if (rejected.length) message += " " + rejected.join(" ; ") + ".";
+  return { added, message };
 }
 
 function importQuiz() {
@@ -419,48 +462,134 @@ function importQuiz() {
   input.click();
 }
 
-/* =====================================================================
-   Créer avec l'IA (popup en 2 étapes)
-   ===================================================================== */
-function buildPrompt(topic) {
-  const subject = topic.trim() || "[écris ici ton sujet ou colle ton cours]";
-  return `Tu es un professeur qui prépare un questionnaire de révision.
-Crée un quiz à partir du sujet ou du cours donné en bas de ce message.
+const TYPE_DESC = {
+  tf: '- "tf" : une affirmation jugée vraie ou fausse.\n  { "type": "tf", "text": "...", "correct": true }',
+  choice: '- "choice" : 3 à 5 options ; une ou plusieurs sont correctes (au moins une).\n  { "type": "choice", "text": "...", "options": [{ "text": "...", "correct": true }, { "text": "...", "correct": false }] }',
+  text: '- "text" : réponse courte (1 à 3 mots) que le joueur tape. "tolerance" vaut "tolerant" (accents, majuscules, espaces et ponctuation ignorés — recommandé) ou "exact".\n  { "type": "text", "text": "...", "answers": ["...", "autre formulation acceptée"], "tolerance": "tolerant" }',
+  list: '- "list" : 3 à 6 éléments à remettre dans l\'ordre. Écris-les déjà dans le bon ordre : le site les mélange lui-même.\n  { "type": "list", "text": "...", "items": ["...", "...", "..."] }'
+};
 
-Réponds UNIQUEMENT avec un JSON valide : pas de texte avant ou après, pas de balises markdown.
+function buildPrompt(cfg) {
+  const types = cfg.types.length ? cfg.types : ["tf", "choice", "text", "list"];
+  const typeLines = types.map(t => TYPE_DESC[t]).join("\n");
+  const subjectBlock = cfg.mode === "attachment"
+    ? "Sujet : le document que je joins à ce message. Appuie-toi uniquement sur son contenu pour générer les questions."
+    : `Sujet ou cours :\n${cfg.topic.trim() || "[écris ici ton sujet ou colle ton cours]"}`;
+
+  return `Génère uniquement un objet JSON, sans aucun texte avant ou après, sans balises markdown ni commentaire, et sans créer de quiz interactif directement dans cette discussion : ta seule sortie doit être le JSON demandé ci-dessous.
+
+Tu es un professeur qui prépare un questionnaire de révision.
 
 Format attendu :
 {
   "name": "Titre court du quiz",
-  "questions": [
-    { "type": "tf", "text": "Une affirmation à juger", "correct": true },
-    { "type": "choice", "text": "Une question à options", "options": [
-      { "text": "Option A", "correct": true },
-      { "text": "Option B", "correct": false },
-      { "text": "Option C", "correct": true }
-    ] },
-    { "type": "text", "text": "Une question à réponse courte", "answers": ["réponse attendue", "autre formulation acceptée"] },
-    { "type": "list", "text": "Remets ces éléments dans l'ordre", "items": ["premier", "deuxième", "troisième"] }
-  ]
+  "schemaVersion": "${SCHEMA_VERSION}",
+  "questions": [ ... ]
 }
 
-Règles :
-- "tf" : vrai ou faux, "correct" vaut true ou false.
-- "choice" : 3 à 5 options ; une ou plusieurs peuvent être correctes, au moins une l'est.
-- "text" : réponse de 1 à 3 mots ; mets dans "answers" toutes les formulations acceptables.
-- "list" : 3 à 6 éléments, écrits dans le bon ordre (le quiz les mélange ensuite).
-- Mélange les 4 types, écris les questions dans la langue du sujet, environ 10 questions.
-- Chaque question doit avoir une seule interprétation possible.
+Types de questions à utiliser (uniquement ceux-ci) :
+${typeLines}
 
-Sujet ou cours :
-${subject}`;
+Règles :
+- Génère exactement ${cfg.count} questions au total, réparties entre les types ci-dessus.
+- Écris les questions dans la langue du sujet.
+- Chaque question ne doit avoir qu'une seule interprétation possible.
+- Garde le champ "schemaVersion" tel quel : "${SCHEMA_VERSION}".
+
+${subjectBlock}`;
+}
+
+function buildMistakesPrompt(name, results) {
+  const wrong = results.filter(r => !r.ok);
+  const good = results.filter(r => r.ok).length;
+  const lines = wrong.map((r, i) =>
+    `${i + 1}. ${r.q.text}\n   Ma réponse : ${r.given}\n   Réponse attendue : ${r.expected}`
+  ).join("\n\n");
+
+  return `Voici mes résultats au quiz « ${name} » : ${good} bonne(s) réponse(s) sur ${results.length}.
+Voici les questions que j'ai ratées :
+
+${lines}
+
+Génère-moi un nouveau quiz de révision, ciblé sur ces erreurs, avec le même format JSON que précédemment : un objet JSON uniquement (pas de texte autour, pas de markdown), avec "schemaVersion": "${SCHEMA_VERSION}" et "questions" utilisant les types "tf", "choice", "text" (avec "tolerance") ou "list".`;
+}
+
+function readAICfg() {
+  return {
+    types: [...document.querySelectorAll("#ai-types button.on")].map(b => b.dataset.value),
+    count: Math.max(1, Math.min(40, parseInt($("ai-count").value, 10) || 10)),
+    mode: document.querySelector("#seg-source button.on")?.dataset.value || "text",
+    topic: $("ai-topic").value
+  };
+}
+
+function refreshAIPrompt() { $("ai-prompt").value = buildPrompt(readAICfg()); }
+
+function setSourceMode(mode) {
+  document.querySelectorAll("#seg-source button").forEach(b => b.classList.toggle("on", b.dataset.value === mode));
+  $("ai-topic-wrap").hidden = mode === "attachment";
+  $("ai-attach-note").hidden = mode !== "attachment";
+  refreshAIPrompt();
+}
+
+function setPromptToggle(open) {
+  $("ai-toggle-prompt").replaceChildren(
+    h("span", { class: "chev", text: open ? "▾" : "▸" }),
+    document.createTextNode(open ? " Masquer le prompt" : " Voir le prompt")
+  );
+  $("ai-prompt").hidden = !open;
+}
+
+function switchAITab(name) {
+  $("tab-custom").classList.toggle("on", name === "custom");
+  $("tab-gen").classList.toggle("on", name === "gen");
+  $("tabpanel-custom").hidden = name !== "custom";
+  $("tabpanel-gen").hidden = name !== "gen";
+}
+
+function initAIModal() {
+  document.querySelectorAll("#ai-types button").forEach(b => {
+    b.classList.add("on");
+    b.onclick = () => {
+      const on = document.querySelectorAll("#ai-types button.on");
+      if (b.classList.contains("on") && on.length === 1) { toast("Choisis au moins un type."); return; }
+      b.classList.toggle("on");
+      refreshAIPrompt();
+    };
+  });
+
+  document.querySelectorAll("#seg-source button").forEach(b => {
+    b.onclick = () => setSourceMode(b.dataset.value);
+  });
+
+  $("ai-count").oninput = refreshAIPrompt;
+  $("ai-topic").oninput = refreshAIPrompt;
+
+  $("tab-custom").onclick = () => switchAITab("custom");
+  $("tab-gen").onclick = () => switchAITab("gen");
+  $("ai-next").onclick = () => { refreshAIPrompt(); switchAITab("gen"); };
+
+  $("ai-toggle-prompt").onclick = () => setPromptToggle($("ai-prompt").hidden);
+  $("ai-copy").onclick = copyPrompt;
+  $("ai-google").onclick = openGoogleAI;
+
+  $("ai-close").onclick = closeAI;
+  $("ai-modal").addEventListener("mousedown", e => { if (e.target === $("ai-modal")) closeAI(); });
+  $("ai-create").onclick = createFromAI;
 }
 
 function openAI() {
   $("new-menu").hidden = true;
   $("new-btn").setAttribute("aria-expanded", "false");
   $("ai-error").hidden = true;
-  $("ai-prompt").value = buildPrompt($("ai-topic").value);
+  $("ai-paste").value = "";
+  $("ai-topic").value = "";
+  $("ai-count").value = 10;
+  document.querySelectorAll("#ai-types button").forEach(b => b.classList.add("on"));
+  setSourceMode("text");
+  setPromptToggle(false);
+  refreshAIPrompt();
+  switchAITab("custom");
   $("ai-modal").hidden = false;
   $("ai-topic").focus();
 }
@@ -474,16 +603,25 @@ async function copyPrompt() {
     await navigator.clipboard.writeText(field.value);
     ok = true;
   } catch {
+    field.hidden = false;
     field.select();
     try { ok = document.execCommand("copy"); } catch { ok = false; }
   }
   const b = $("ai-copy");
   if (ok) {
+    const prev = b.textContent;
     b.textContent = "Copié !";
-    setTimeout(() => { b.textContent = "Copier le prompt"; }, 1600);
+    setTimeout(() => { b.textContent = prev; }, 1600);
   } else {
-    toast("Copie impossible : sélectionne le texte et copie-le à la main.");
+    toast("Copie impossible : ouvre le prompt et copie-le à la main.");
+    setPromptToggle(true);
   }
+}
+
+function openGoogleAI() {
+  const text = $("ai-prompt").value;
+  if (text.length > 1500) toast("Prompt long : le lien Google peut être tronqué. Mieux vaut copier/coller à la main.");
+  window.open("https://www.google.com/search?q=" + encodeURIComponent(text), "_blank", "noopener");
 }
 
 function createFromAI() {
@@ -504,12 +642,17 @@ function createFromAI() {
   $("ai-paste").value = "";
   closeAI();
   toast(r.message);
-  openEditor(r.added[0]);
+  openQuizHome(r.added[0]);
 }
 
-/* =====================================================================
-   Vues
-   ===================================================================== */
+function initInfoModal() {
+  $("info-app-version").textContent = String(APP_VERSION);
+  $("info-schema-version").textContent = String(SCHEMA_VERSION);
+  $("version-btn").onclick = () => { $("info-modal").hidden = false; };
+  $("info-close").onclick = () => { $("info-modal").hidden = true; };
+  $("info-modal").addEventListener("mousedown", e => { if (e.target === $("info-modal")) $("info-modal").hidden = true; });
+}
+
 function render(node) { $("view").replaceChildren(node); }
 
 function goHome() {
@@ -518,14 +661,53 @@ function goHome() {
   renderQuizList();
   render(h("section", {},
     h("h1", { text: "Aucun questionnaire sélectionné" }),
-    h("p", { class: "empty", text: "Ouvre le menu pour lancer un questionnaire ou en créer un." })
+    h("p", { class: "empty", text: "Ouvre le menu pour choisir un questionnaire ou en créer un." })
   ));
 }
 
-/* =====================================================================
-   Jeu
-   Chaque type de question fournit : node, ready(), check(), reveal()
-   ===================================================================== */
+function openQuizHome(name) {
+  currentQuiz = name;
+  play = null;
+  renderQuizList();
+  if (narrow()) setMenu(false);
+  renderQuizHome();
+}
+
+function renderQuizHome() {
+  const name = currentQuiz;
+  const entry = quizzes[name];
+  if (!entry) { goHome(); return; }
+
+  if (entry.incompatible) {
+    render(h("section", {},
+      h("h1", { text: name }),
+      h("div", { class: "feedback wrong" },
+        h("strong", { text: "Version non prise en charge" }),
+        h("p", { text: `Ce questionnaire utilise une version de format (v${entry.schemaVersion}) plus récente que celle lue par ce site (v${SCHEMA_VERSION}). Mets à jour le site pour l'ouvrir, ou supprime-le depuis le menu.` }))
+    ));
+    return;
+  }
+
+  const qs = entry.questions;
+  const hist = quizHistory(name).slice().reverse();
+  const bigPlay = btn("play", () => startQuiz(name), "primary big");
+  bigPlay.disabled = !qs.length;
+
+  render(h("section", {},
+    h("h1", { text: name }),
+    h("p", { class: "count", text: qs.length ? `${qs.length} question${qs.length > 1 ? "s" : ""}` : "Ce questionnaire est vide." }),
+    h("div", { class: "actions" }, bigPlay, btn("edit", () => openEditor(name))),
+    !qs.length ? h("p", { class: "hint", text: "Ajoute des questions depuis l'éditeur avant de le lancer." }) : null,
+    h("h3", { text: "Historique des scores" }),
+    hist.length
+      ? h("ul", { class: "history" }, hist.map(r => h("li", {},
+          h("span", { class: "h-date", text: new Date(r.date).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) }),
+          h("span", { class: "h-score", text: `${r.good} / ${r.total} (${r.total ? Math.round((r.good / r.total) * 100) : 0} %)` }))))
+      : h("p", { class: "empty", text: "Aucune tentative pour l'instant." })
+  ));
+  window.scrollTo(0, 0);
+}
+
 function buildTF(q, onChange) {
   let val = null, locked = false;
   const items = [];
@@ -614,14 +796,14 @@ function buildText(q, onChange) {
     type: "text", class: "text-answer", placeholder: "Ta réponse…",
     autocomplete: "off", spellcheck: false, oninput: onChange
   });
-  const result = () => {
-    const v = norm(input.value);
-    return {
-      ok: q.answers.some(a => norm(a) === v),
-      given: input.value.trim(),
-      expected: q.answers.join(" / ")
-    };
-  };
+  const matches = v => q.tolerance === "exact"
+    ? q.answers.some(a => a.trim() === v.trim())
+    : q.answers.some(a => norm(a) === norm(v));
+  const result = () => ({
+    ok: matches(input.value),
+    given: input.value.trim(),
+    expected: q.answers.join(" / ")
+  });
   return {
     node: input,
     ready: () => input.value.trim() !== "",
@@ -635,14 +817,13 @@ function buildText(q, onChange) {
 }
 
 function buildList(q, onChange) {
-  // Mélange, en évitant de tomber par hasard sur le bon ordre
   let items = q.items.map(t => ({ t }));
   for (let n = 0; n < 5; n++) {
     items = shuffle(items);
     if (items.some((it, k) => it.t !== q.items[k])) break;
   }
 
-  let order = [];          // indices (dans `items`) dans l'ordre choisi par le joueur
+  let order = [];
   let locked = false;
   const pool = h("div", { class: "chips" });
   const seq = h("ol", { class: "seq" });
@@ -685,7 +866,7 @@ function buildList(q, onChange) {
 }
 
 function startQuiz(name, subset) {
-  const src = subset || quizzes[name];
+  const src = subset || quizzes[name].questions;
   if (!src || !src.length) {
     toast("Ce questionnaire est vide : ajoute des questions.");
     openEditor(name);
@@ -724,10 +905,11 @@ function renderPlay() {
     nextBtn.hidden = false;
     feedback.hidden = false;
     feedback.className = "feedback " + (r.ok ? "right" : "wrong");
-    feedback.replaceChildren(
-      h("strong", { text: r.ok ? "Correct !" : "Raté." }),
-      r.ok ? null : h("p", { text: "Réponse attendue : " + r.expected })
-    );
+
+    const kids = [h("strong", { text: r.ok ? "Correct !" : "Raté." })];
+    if (!r.ok) kids.push(h("p", { text: "Réponse attendue : " + r.expected }));
+    feedback.replaceChildren(...kids);
+
     nextBtn.focus();
   }
 
@@ -744,7 +926,7 @@ function renderPlay() {
   render(h("section", {},
     h("div", { class: "topline" },
       h("h1", { text: p.name }),
-      btn("quit", goHome)),
+      btn("quit", () => openQuizHome(p.name))),
     h("div", { class: "count", text: `Question ${p.i + 1} / ${p.qs.length}` }),
     h("div", { class: "bar" }, h("i", { style: `width:${(p.i / p.qs.length) * 100}%` })),
     h("h2", { class: "question", text: q.text }),
@@ -764,6 +946,8 @@ function renderResult() {
   const wrong = p.results.filter(r => !r.ok);
   const pct = total ? Math.round((good / total) * 100) : 0;
 
+  recordScore(p.name, good, total);
+
   render(h("section", {},
     h("h1", { text: p.name }),
     h("div", { class: "score" }, `${good} / ${total} `, h("small", { text: `${pct} %` })),
@@ -779,17 +963,13 @@ function renderResult() {
     h("div", { class: "actions" },
       btn("replay", () => startQuiz(p.name), "primary"),
       wrong.length ? btn("replayErr", () => startQuiz(p.name, wrong.map(r => r.q))) : null,
+      wrong.length ? btn("copyErr", () => copyText(buildMistakesPrompt(p.name, p.results), "Prompt copié !")) : null,
       btn("edit", () => openEditor(p.name)),
-      btn("quit", goHome))
+      btn("quit", () => openQuizHome(p.name)))
   ));
   window.scrollTo(0, 0);
 }
 
-/* =====================================================================
-   Éditeur
-   L'état du formulaire vit dans `ed` : on peut donc tout redessiner
-   sans perdre ce qui a été tapé.
-   ===================================================================== */
 const blankEd = (type = "tf") => ({
   index: null,
   type,
@@ -797,6 +977,7 @@ const blankEd = (type = "tf") => ({
   correct: true,
   options: [{ text: "", correct: false }, { text: "", correct: false }],
   answers: [""],
+  tolerance: "tolerant",
   items: ["", ""]
 });
 let ed = blankEd();
@@ -804,7 +985,7 @@ let ed = blankEd();
 function summary(q) {
   if (q.type === "tf") return q.correct ? "Vrai" : "Faux";
   if (q.type === "choice") return q.options.filter(o => o.correct).map(o => o.text).join(", ");
-  if (q.type === "text") return q.answers.join(" / ");
+  if (q.type === "text") return q.answers.join(" / ") + (q.tolerance === "exact" ? " (exact)" : "");
   return q.items.join(" → ");
 }
 
@@ -818,11 +999,11 @@ function openEditor(name) {
 }
 
 function editQuestion(i) {
-  const q = quizzes[currentQuiz][i];
+  const q = quizzes[currentQuiz].questions[i];
   ed = { ...blankEd(q.type), index: i, text: q.text };
   if (q.type === "tf") ed.correct = q.correct;
   if (q.type === "choice") ed.options = q.options.map(o => ({ ...o }));
-  if (q.type === "text") ed.answers = [...q.answers];
+  if (q.type === "text") { ed.answers = [...q.answers]; ed.tolerance = q.tolerance; }
   if (q.type === "list") ed.items = [...q.items];
   renderEditor();
   $("ed-text").focus();
@@ -830,7 +1011,7 @@ function editQuestion(i) {
 }
 
 function deleteQuestion(i) {
-  quizzes[currentQuiz].splice(i, 1);
+  quizzes[currentQuiz].questions.splice(i, 1);
   if (ed.index === i) ed = blankEd(ed.type);
   else if (ed.index !== null && ed.index > i) ed.index--;
   save();
@@ -840,7 +1021,7 @@ function deleteQuestion(i) {
 
 function renderEditor() {
   const name = currentQuiz;
-  const qs = quizzes[name];
+  const qs = quizzes[name].questions;
 
   const fields = h("div", { class: "fields" });
   const err = h("p", { class: "error", hidden: true });
@@ -888,7 +1069,7 @@ function renderEditor() {
     }
 
     if (ed.type === "text") {
-      fields.append(h("p", { class: "hint", text: "Réponses acceptées. Majuscules, accents et ponctuation sont ignorés." }));
+      fields.append(h("p", { class: "hint", text: "Réponses acceptées." }));
       ed.answers.forEach((a, i) => {
         fields.append(row(
           h("input", { type: "text", placeholder: i === 0 ? "Bonne réponse" : "Autre réponse acceptée", value: a,
@@ -896,6 +1077,12 @@ function renderEditor() {
           ed.answers.length > 1 ? btn("rm", () => { ed.answers.splice(i, 1); drawFields(); }, "small") : null));
       });
       fields.append(btn("addAns", () => { ed.answers.push(""); drawFields(true); }, "small"));
+
+      const tol = h("select", { onchange: () => { ed.tolerance = tol.value; } },
+        h("option", { value: "tolerant", text: "Tolérant (accents, majuscules, espaces ignorés)" }),
+        h("option", { value: "exact", text: "Exact" }));
+      tol.value = ed.tolerance;
+      fields.append(h("label", { text: "Tolérance" }), tol);
     }
 
     if (ed.type === "list") {
@@ -940,7 +1127,7 @@ function renderEditor() {
     } else if (ed.type === "text") {
       const answers = ed.answers.map(a => a.trim()).filter(Boolean);
       if (!answers.length) msg = "Ajoute au moins une réponse.";
-      else raw = { type: "text", text, answers };
+      else raw = { type: "text", text, answers, tolerance: ed.tolerance };
     } else {
       const items = ed.items.map(i => i.trim()).filter(Boolean);
       if (items.length < 2) msg = "Ajoute au moins 2 éléments.";
@@ -954,8 +1141,8 @@ function renderEditor() {
       return;
     }
 
-    if (ed.index === null) quizzes[name].push(q);
-    else quizzes[name][ed.index] = q;
+    if (ed.index === null) quizzes[name].questions.push(q);
+    else quizzes[name].questions[ed.index] = q;
     save();
     renderQuizList();
     ed = blankEd(ed.type);
@@ -997,13 +1184,12 @@ function renderEditor() {
   ));
 }
 
-/* =====================================================================
-   Démarrage
-   ===================================================================== */
 function init() {
   document.querySelectorAll("[data-lbl]").forEach(el => setLbl(el, el.dataset.lbl));
   initSettingsUI();
   applySettings();
+  initAIModal();
+  initInfoModal();
 
   $("menu-btn").onclick = () => setMenu(!isOpen("menu-open"));
   $("settings-btn").onclick = () => setSettings(!isOpen("settings-open"));
@@ -1019,15 +1205,10 @@ function init() {
   $("new-ai").onclick = openAI;
   $("export-btn").onclick = exportAll;
 
-  $("ai-close").onclick = closeAI;
-  $("ai-modal").addEventListener("mousedown", e => { if (e.target === $("ai-modal")) closeAI(); });
-  $("ai-topic").oninput = () => { $("ai-prompt").value = buildPrompt($("ai-topic").value); };
-  $("ai-copy").onclick = copyPrompt;
-  $("ai-create").onclick = createFromAI;
-
   document.addEventListener("keydown", e => {
     if (e.key !== "Escape") return;
     if (!$("ai-modal").hidden) closeAI();
+    else if (!$("info-modal").hidden) $("info-modal").hidden = true;
     else { setMenu(false); setSettings(false); }
   });
 
@@ -1036,7 +1217,7 @@ function init() {
     updateScrim();
   });
 
-  save(); // enregistre les anciennes questions converties au nouveau format
+  save();
   setMenu(false);
   setSettings(false);
   goHome();
